@@ -1,4 +1,9 @@
 # app.py
+import sys
+import os
+# Parche de compatibilidad de rutas para despliegue en la nube (GitHub/Streamlit Cloud)
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import streamlit as st
 import sqlite3
 import pandas as pd
@@ -10,7 +15,6 @@ try:
     from streamlit_folium import st_folium
 except ImportError:
     import subprocess
-    import sys
     with st.spinner("🔧 Configurando componentes cartográficos corporativos... Espere un momento."):
         subprocess.check_call([sys.executable, "-m", "pip", "install", "streamlit-folium", "folium"])
     import folium
@@ -36,19 +40,63 @@ st.markdown("""
     div[data-testid="stExpander"] { border: 1px solid #002F6C; border-radius: 6px; }
     div[data-testid="stMetric"] { background-color: #f0f4f8; padding: 10px; border-radius: 6px; border-left: 5px solid #002F6C; }
     
+    /* Enlace destacado de ruta completa */
+    .link-ruta-completa {
+        display: inline-block; background-color: #008B8B; color: white !important;
+        padding: 8px 15px; border-radius: 6px; font-weight: bold;
+        text-decoration: none; margin-top: 10px; margin-bottom: 20px;
+        text-align: center;
+    }
+    .link-ruta-completa:hover { background-color: #006b6b; text-decoration: none; }
+    
+    /* 📊 ESTILOS DE TABLA PREMIUM DE ALTA VISIBILIDAD (MÓVIL Y PC) */
+    table.dataframe-renderizada {
+        width: 100% !important;
+        border-collapse: collapse;
+        font-family: Arial, sans-serif;
+        font-size: 13px;
+        margin: 10px 0;
+    }
+    table.dataframe-renderizada th {
+        background-color: #002F6C !important;
+        color: white !important;
+        font-weight: bold;
+        padding: 10px;
+        text-align: left;
+        white-space: nowrap;
+    }
+    table.dataframe-renderizada td {
+        padding: 8px 10px;
+        border-bottom: 1px solid #e0e0e0;
+        white-space: nowrap; /* Evita que el texto se rompa en múltiples renglones verticales */
+    }
+    table.dataframe-renderizada tr:hover {
+        background-color: #f5f7fa;
+    }
+    
+    /* Asignación elástica de anchos específicos por columna */
+    table.dataframe-renderizada th:nth-child(1), table.dataframe-renderizada td:nth-child(1) { width: 50px; text-align: center; } /* Secuencia */
+    table.dataframe-renderizada th:nth-child(2), table.dataframe-renderizada td:nth-child(2) { width: 180px; } /* Nombre */
+    table.dataframe-renderizada th:nth-child(3), table.dataframe-renderizada td:nth-child(3) { min-width: 400px; max-width: 600px; overflow: hidden; text-overflow: ellipsis; } /* Dirección Expandida */
+    table.dataframe-renderizada th:nth-child(4), table.dataframe-renderizada td:nth-child(4) { width: 90px; text-align: center; }  /* ETA */
+    table.dataframe-renderizada th:nth-child(5), table.dataframe-renderizada td:nth-child(5) { width: 90px; text-align: center; }  /* Salida */
+    table.dataframe-renderizada th:nth-child(6), table.dataframe-renderizada td:nth-child(6) { width: 100px; text-align: center; } # GPS
+    
+    /* Contenedor con scroll táctil para celulares */
+    .contenedor-tabla-scroll {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        border: 1px solid #e0e0e0;
+        border-radius: 4px;
+        margin-bottom: 15px;
+    }
+
     /* 📱 OPTIMIZACIÓN EN PANTALLAS MÓVILES */
     @media (max-width: 768px) {
         .main h1 { font-size: 1.4rem; text-align: center; }
         div[data-testid="stMetric"] { margin-bottom: 10px; }
-        /* Forzar que las tablas tengan scroll horizontal limpio en celular sin romper la UI */
-        div.stDataFrame, div[data-testid="stTable"] {
-            overflow-x: auto;
-            -webkit-overflow-scrolling: touch;
-        }
-        /* Ajustar los selectores para que no se amontonen */
-        .stSelectbox, .stSlider {
-            margin-bottom: 15px;
-        }
+        .stSelectbox, .stSlider { margin-bottom: 15px; }
     }
     </style>
 """, unsafe_allow_html=True)
@@ -144,6 +192,21 @@ def crear_mapa_base(puntos_marcadores, ruta_linea=None, color_linea="#002F6C"):
         folium.PolyLine(ruta_linea, color=color_linea, weight=4.5, opacity=0.85).add_to(m)
     return m
 
+def generar_link_google_maps_completo(coords_lista):
+    """Genera una URL híbrida multihito válida para abrir todo el circuito completo secuenciado en Google Maps."""
+    if len(coords_lista) < 2:
+        return ""
+    origen = f"{coords_lista[0][0]},{coords_lista[0][1]}"
+    destino = f"{coords_lista[-1][0]},{coords_lista[-1][1]}"
+    
+    paradas_intermedias = coords_lista[1:-1]
+    if paradas_intermedias:
+        waypoints = "|".join([f"{lat},{lon}" for lat, lon in paradas_intermedias])
+        url = f"https://www.google.com/maps/dir/?api=1&origin={origen}&destination={destino}&waypoints={waypoints}&travelmode=driving"
+    else:
+        url = f"https://www.google.com/maps/dir/?api=1&origin={origen}&destination={destino}&travelmode=driving"
+    return url
+
 # ============================================================
 # PANEL PRINCIPAL: CONFIGURACIÓN DEL CIRCUITO
 # ============================================================
@@ -221,26 +284,28 @@ if tipo_ruta == "Diaria":
                     lat_s = float(df_pool_sec[df_pool_sec['id_sucursal']==v['ID Sucursal']]['latitud'].values[0])
                     lon_s = float(df_pool_sec[df_pool_sec['id_sucursal']==v['ID Sucursal']]['longitud'].values[0])
                     
-                    # 📲 NUEVO: Generar enlaces nativos HTML dinámicos para abrir la navegación GPS en tu celular
                     url_gps = f"https://www.google.com/maps/search/?api=1&query={lat_s},{lon_s}"
-                    link_html = f'<a href="{url_gps}" target="_blank">🗺️ Iniciar GPS</a>'
+                    link_html = f'<a href="{url_gps}" target="_blank">🗺️ GPS</a>'
                     
                     df_visitas_final.append({
-                        "Secuencia": v["Secuencia"],
+                        "Sec": v["Secuencia"],
                         "Marca": m_det,
-                        "Nombre Sucursal": v["Nombre Sucursal"],
+                        "Sucursal": v["Nombre Sucursal"],
                         "Dirección": v["Dirección"],
-                        "ETA Llegada": v["ETA Llegada"],
-                        "Hora Salida": v["Hora Salida"],
-                        "Navegación Móvil": link_html
+                        "ETA": v["ETA Llegada"],
+                        "Salida": v["Hora Salida"],
+                        "Navegación": link_html
                     })
                     
                     puntos.append({"lat": lat_s, "lon": lon_s, "name": f"[{m_det}] {v['Nombre Sucursal']}", "idx": idx+1})
                     coords_viaje.append((lat_s, lon_s))
                     
                 st.markdown(f"### 📋 Itinerario Maestro — Ruta {r_seleccionada}")
-                # Renderizar tabla nativa aceptando el link HTML seguro del GPS
-                st.write(pd.DataFrame(df_visitas_final).to_html(escape=False, index=False), unsafe_allow_html=True)
+                df_html = pd.DataFrame(df_visitas_final)
+                st.markdown(f'<div class="contenedor-tabla-scroll"><table class="dataframe-renderizada">{df_html.to_html(escape=False, index=False, classes="dataframe-renderizada")}</table></div>', unsafe_allow_html=True)
+                
+                link_jornada_maps = generar_link_google_maps_completo(coords_viaje)
+                st.markdown(f'<a href="{link_jornada_maps}" target="_blank" class="link-ruta-completa">🚀 Abrir Ruta Completa del Día en Google Maps</a>', unsafe_allow_html=True)
                 
                 st.write("---")
                 st.write("#### 🗺️ Trazado Vial en Tiempo Real (Avenidas)")
@@ -292,7 +357,7 @@ elif tipo_ruta == "Semanal":
         colores_dias = {"Lunes": "#002F6C", "Martes": "#008B8B", "Miércoles": "#4682B4", "Jueves": "#20B2AA", "Viernes": "#1F4E5B"}
         mapa_semanal = folium.Map(location=[lat_casa, lon_casa], zoom_start=10)
         
-        st.write("#### 📋 Cronograma de Operaciones Generadas")
+        st.write("#### 📋 Cronograma de Operations Generadas")
         for dia in dias:
             zona = config_semana[dia]["zona"]
             num_r = config_semana[dia]["ruta"]
@@ -303,31 +368,35 @@ elif tipo_ruta == "Semanal":
             suc_lista_sem = df_pool_sem.to_dict(orient='records')
             visitas_calc_sem, _, hora_cs = simular_ruta_del_dia(suc_lista_sem, hora_inicio_sem, visitas_jornada_sem, False, "Atizapán Base", (lat_casa, lon_casa))
             
-            if dia in dias_seleccionados and visitas_calc_sem:
-                coords_dia = [(lat_casa, lon_casa)]
+            coords_dia = [(lat_casa, lon_casa)]
+            if visitas_calc_sem:
                 for idx, v in enumerate(visitas_calc_sem):
                     l_s = float(df_pool_sem[df_pool_sem['id_sucursal']==v['ID Sucursal']]['latitud'].values[0])
                     lo_s = float(df_pool_sem[df_pool_sem['id_sucursal']==v['ID Sucursal']]['longitud'].values[0])
                     coords_dia.append((l_s, lo_s))
-                    folium.Marker([l_s, lo_s], popup=f"{dia}: {v['Nombre Sucursal']}", icon=folium.Icon(color="cadetblue")).add_to(mapa_semanal)
-                t_real_dia = obtener_ruta_vial_real(coords_dia)
-                folium.PolyLine(t_real_dia, color=colores_dias[dia], weight=4, opacity=0.8, tooltip=f"Ruta {dia}").add_to(mapa_semanal)
+                    if dia in dias_seleccionados:
+                        folium.Marker([l_s, lo_s], popup=f"{dia}: {v['Nombre Sucursal']}", icon=folium.Icon(color="cadetblue")).add_to(mapa_semanal)
+                
+                if dia in dias_seleccionados:
+                    t_real_dia = obtener_ruta_vial_real(coords_dia)
+                    folium.PolyLine(t_real_dia, color=colores_dias[dia], weight=4, opacity=0.8, tooltip=f"Ruta {dia}").add_to(mapa_semanal)
             
             with st.expander(f"➔ {dia.upper()}: {zona} (Circuito {num_r}) — Retorno est: {hora_cs} hrs"):
                 if visitas_calc_sem:
-                    df_sem_móvil = []
+                    df_sem_movil = []
                     for idx, v in enumerate(visitas_calc_sem): 
                         l_s = float(df_pool_sem[df_pool_sem['id_sucursal']==v['ID Sucursal']]['latitud'].values[0])
                         lo_s = float(df_pool_sem[df_pool_sem['id_sucursal']==v['ID Sucursal']]['longitud'].values[0])
                         u_gps = f"https://www.google.com/maps/search/?api=1&query={l_s},{lo_s}"
-                        df_sem_móvil.append({
-                            "Secuencia": v["Secuencia"],
-                            "Nombre Sucursal": v["Nombre Sucursal"],
-                            "ETA Llegada": v["ETA Llegada"],
-                            "Hora Salida": v["Hora Salida"],
-                            "Navegación": f'<a href="{u_gps}" target="_blank">🗺️ Navegar</a>'
+                        df_sem_movil.append({
+                            "Sec": v["Secuencia"], "Sucursal": v["Nombre Sucursal"], "Dirección": v["Dirección"], "ETA": v["ETA Llegada"], "Salida": v["Hora Salida"],
+                            "Navegación": f'<a href="{u_gps}" target="_blank">🗺️ GPS</a>'
                         })
-                    st.write(pd.DataFrame(df_sem_móvil).to_html(escape=False, index=False), unsafe_allow_html=True)
+                    df_html_sem = pd.DataFrame(df_sem_movil)
+                    st.markdown(f'<div class="contenedor-tabla-scroll"><table class="dataframe-renderizada">{df_html_sem.to_html(escape=False, index=False, classes="dataframe-renderizada")}</table></div>', unsafe_allow_html=True)
+                    
+                    link_semanal_completo = generar_link_google_maps_completo(coords_dia)
+                    st.markdown(f'<a href="{link_semanal_completo}" target="_blank" class="link-ruta-completa">🚀 Abrir Circuito Completo de este {dia} en Google Maps</a>', unsafe_allow_html=True)
         conn.close()
         
         st.write("---")
@@ -335,6 +404,9 @@ elif tipo_ruta == "Semanal":
         st_folium(mapa_semanal, width=1200, height=500, returned_objects=[])
 
 else:
+    # ============================================================
+    # 🛣️ MÓDULO REGIONAL CON ESTADO BLINDADO Y PERSISTENTE
+    # ============================================================
     st.markdown("### 🗺️ Optimización de Circuitos Foráneos e Itinerarios de Viaje")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -348,6 +420,15 @@ else:
         ciudad_hotel = st.selectbox("Ciudad del Hotel:", ["Acapulco", "Chilpancingo", "Cuernavaca", "Taxco"])
         hotel_nombre = st.text_input("Hotel Autorizado:", value=f"Fiesta Inn {ciudad_hotel}")
         
+    if 'regional_simulado' not in st.session_state:
+        st.session_state.regional_simulado = False
+        st.session_state.datos_por_dia = {}
+        st.session_state.lat_hotel = 16.853056
+        st.session_state.lon_hotel = -99.851944
+        st.session_state.lat_casa = 19.549732
+        st.session_state.lon_casa = -99.236967
+        st.session_state.df_pool_guardado = None
+
     if st.button("🚀 Ejecutar Optimización Predictiva Regional"):
         conn = sqlite3.connect("data/fsm_rutas.db")
         if marca_seleccionada == "TODAS LAS MARCAS":
@@ -362,99 +443,141 @@ else:
         
         if df_pool.empty:
             st.warning(f"No hay sucursales activas registradas para el Estado de {estado_filtro} con los filtros seleccionados.")
+            st.session_state.regional_simulado = False
         else:
             fsm_meta = df_fsm_data.iloc[0].to_dict() if not df_fsm_data.empty else {}
-            lat_casa, lon_casa = float(fsm_meta.get('latitud_base', 19.549732)), float(fsm_meta.get('longitud_base', -99.236967))
+            st.session_state.lat_casa, st.session_state.lon_casa = float(fsm_meta.get('latitud_base', 19.549732)), float(fsm_meta.get('longitud_base', -99.236967))
             
             coordenadas_hoteles = {"Acapulco": (16.853056, -99.851944), "Chilpancingo": (17.551111, -99.500556), "Taxco": (18.556111, -99.605556), "Cuernavaca": (18.921389, -99.234722)}
-            lat_hotel, lon_hotel = coordenadas_hoteles.get(ciudad_hotel, (16.853056, -99.851944))
+            st.session_state.lat_hotel, st.session_state.lon_hotel = coordenadas_hoteles.get(ciudad_hotel, (16.853056, -99.851944))
             
             if estado_filtro == "GUERRERO" and modo_arribo == "Trabajar en el camino (Lunes)":
                 df_pool = df_pool.sort_values(by="latitud", ascending=False)
                 
+            df_pool = df_pool.rename(columns={'id_sucursal': 'id_sucursal', 'sucursal_nombre': 'sucursal_nombre', 'direccion_completa': 'direccion_completa'})
+            st.session_state.df_pool_guardado = df_pool.copy()
             pool_pendiente = df_pool.to_dict(orient='records')
             
-            st.markdown("## 🗓️ Cronograma y Logística del Circuito Foráneo")
+            st.session_state.datos_por_dia = {}
             
-            mapa_regional = folium.Map(location=[lat_hotel, lon_hotel], zoom_start=8)
-            folium.Marker([lat_casa, lon_casa], popup="📍 Base FSM (Atizapán)", icon=folium.Icon(color="red", icon="home")).add_to(mapa_regional)
-            folium.Marker([lat_hotel, lon_hotel], popup=f"🏁 Pernocta: {hotel_nombre}", icon=folium.Icon(color="green", icon="briefcase")).add_to(mapa_regional)
-            
-            # --- DÍA 1: LUNES ---
-            st.subheader("🟢 Día 1: Lunes (Traslado y Ruta de Bajada)")
-            visitas_lunes, km_lunes, hora_cierre_lunes = simular_ruta_del_dia(pool_pendiente, hora_inicio, visitas_dia_1, True, fsm_meta.get('direccion_base'), (lat_casa, lon_casa))
-            
+            # --- DÍA 1: LUNES (TRASLADO Y BAJADA) ---
+            visitas_lunes, km_lunes, hora_cierre_lunes = simular_ruta_del_dia(pool_pendiente, hora_inicio, visitas_dia_1, True, fsm_meta.get('direccion_base'), (st.session_state.lat_casa, st.session_state.lon_casa))
             if visitas_lunes:
-                st.info(f"🕒 **Cierre de Jornada:** {hora_cierre_lunes} hrs")
-                df_l_móvil = []
-                for idx, v in enumerate(visitas_lunes):
-                    l_s = float(df_pool[df_pool['id_sucursal']==v['ID Sucursal']]['latitud'].values[0])
-                    lo_s = float(df_pool[df_pool['id_sucursal']==v['ID Sucursal']]['longitud'].values[0])
-                    u_gps = f"https://www.google.com/maps/search/?api=1&query={l_s},{lo_s}"
-                    df_l_móvil.append({
-                        "Secuencia": v["Secuencia"], "Nombre": v["Nombre Sucursal"], "Dirección": v["Dirección"], "ETA": v["ETA Llegada"], "GPS": f'<a href="{u_gps}" target="_blank">🗺️ Navegar</a>'
-                    })
-                st.write(pd.DataFrame(df_l_móvil).to_html(escape=False, index=False), unsafe_allow_html=True)
-                
-                coords_lunes = [(lat_casa, lon_casa)]
+                coords_lunes = [(st.session_state.lat_casa, st.session_state.lon_casa)]
+                puntos_lunes = []
                 for idx, v in enumerate(visitas_lunes):
                     l_s = float(df_pool[df_pool['id_sucursal']==v['ID Sucursal']]['latitud'].values[0])
                     lo_s = float(df_pool[df_pool['id_sucursal']==v['ID Sucursal']]['longitud'].values[0])
                     coords_lunes.append((l_s, lo_s))
-                    folium.Marker([l_s, lo_s], popup=f"Lunes: {v['Nombre Sucursal']}", icon=folium.Icon(color="blue")).add_to(mapa_regional)
-                coords_lunes.append((lat_hotel, lon_hotel))
-                
+                    puntos_lunes.append({"lat": l_s, "lon": lo_s, "popup": f"Lunes: {v['Nombre Sucursal']}", "color": "blue"})
+                coords_lunes.append((st.session_state.lat_hotel, st.session_state.lon_hotel))
                 t_real_lunes = obtener_ruta_vial_real(coords_lunes)
-                folium.PolyLine(t_real_lunes, color="#002F6C", weight=5, opacity=0.85, tooltip="Trayecto Lunes").add_to(mapa_regional)
+                st.session_state.datos_por_dia["Día 1: Lunes (Ruta de Bajada)"] = {"trazado": t_real_lunes, "puntos": puntos_lunes, "line_color": "#002F6C", "tabla": visitas_lunes, "coords_completas": coords_lunes}
                 
                 ids_v = [v["ID Sucursal"] for v in visitas_lunes]
                 pool_pendiente = [s for s in pool_pendiente if s["id_sucursal"] not in ids_v]
-            else:
-                st.info("No se agendaron paradas en el trayecto de bajada.")
             
-            # --- DÍA 2: MARTES ---
+            # --- DÍA 2: MARTES (LOCAL) ---
             if pool_pendiente:
-                st.write("---")
-                st.subheader("🔵 Día 2: Martes (Operación Local en Destino)")
-                st.caption(f"Salida matutina usando como base el Hotel Validado: **{hotel_nombre}**")
-                visitas_martes, km_martes, hora_cierre_martes = simular_ruta_del_dia(pool_pendiente, "08:30", visitas_resto_dias, True, hotel_nombre, (lat_hotel, lon_hotel))
-                
+                visitas_martes, km_martes, hora_cierre_martes = simular_ruta_del_dia(pool_pendiente, "08:30", visitas_resto_dias, True, hotel_nombre, (st.session_state.lat_hotel, st.session_state.lon_hotel))
                 if visitas_martes:
-                    st.info(f"🕒 **Regreso a Hotel:** {hora_cierre_martes} hrs")
-                    df_m_móvil = []
-                    for idx, v in enumerate(visitas_martes):
-                        l_s = float(df_pool[df_pool['id_sucursal']==v['ID Sucursal']]['latitud'].values[0])
-                        lo_s = float(df_pool[df_pool['id_sucursal']==v['ID Sucursal']]['longitud'].values[0])
-                        u_gps = f"https://www.google.com/maps/search/?api=1&query={l_s},{lo_s}"
-                        df_m_móvil.append({
-                            "Secuencia": v["Secuencia"], "Nombre": v["Nombre Sucursal"], "Dirección": v["Dirección"], "ETA": v["ETA Llegada"], "GPS": f'<a href="{u_gps}" target="_blank">🗺️ Navegar</a>'
-                        })
-                    st.write(pd.DataFrame(df_m_móvil).to_html(escape=False, index=False), unsafe_allow_html=True)
-                    
-                    coords_martes = [(lat_hotel, lon_hotel)]
+                    coords_martes = [(st.session_state.lat_hotel, st.session_state.lon_hotel)]
+                    puntos_martes = []
                     for idx, v in enumerate(visitas_martes):
                         l_s = float(df_pool[df_pool['id_sucursal']==v['ID Sucursal']]['latitud'].values[0])
                         lo_s = float(df_pool[df_pool['id_sucursal']==v['ID Sucursal']]['longitud'].values[0])
                         coords_martes.append((l_s, lo_s))
-                        folium.Marker([l_s, lo_s], popup=f"Martes: {v['Nombre Sucursal']}", icon=folium.Icon(color="cadetblue")).add_to(mapa_regional)
-                    coords_martes.append((lat_hotel, lon_hotel))
-                    
+                        puntos_martes.append({"lat": l_s, "lon": lo_s, "popup": f"Martes: {v['Nombre Sucursal']}", "color": "cadetblue"})
+                    coords_martes.append((st.session_state.lat_hotel, st.session_state.lon_hotel))
                     t_real_martes = obtener_ruta_vial_real(coords_martes)
-                    folium.PolyLine(t_real_martes, color="#008B8B", weight=4, opacity=0.8, tooltip="Circuito Martes").add_to(mapa_regional)
+                    st.session_state.datos_por_dia["Día 2: Martes (Circuito Local)"] = {"trazado": t_real_martes, "puntos": puntos_martes, "line_color": "#008B8B", "tabla": visitas_martes, "coords_completas": coords_martes}
                     
                     ids_v = [v["ID Sucursal"] for v in visitas_martes]
                     pool_pendiente = [s for s in pool_pendiente if s["id_sucursal"] not in ids_v]
-                else:
-                    st.warning("⚠️ Las restricciones horarias locales de la zona impidieron agendar visitas seguras este día.")
             
+            # --- DÍA 3: MIÉRCOLES (LOCAL) ---
             if pool_pendiente:
-                st.write("---")
-                st.error(f"⚠️ Atención: Quedaron {len(pool_pendiente)} sucursales sin poderse trazar por restricciones de ventana horaria local.")
-                
-            st.write("---")
-            st.subheader("🚗 Retorno Planificado Seguro")
-            st.warning("⚠️ Regla de Seguridad Ecolab: El viaje de regreso por carretera hacia Atizapán queda programado para el día siguiente por la mañana para evitar conducción nocturna.")
+                visitas_miercoles, km_miercoles, hora_cierre_miercoles = simular_ruta_del_dia(pool_pendiente, "08:30", visitas_resto_dias, True, hotel_nombre, (st.session_state.lat_hotel, st.session_state.lon_hotel))
+                if visitas_miercoles:
+                    coords_miercoles = [(st.session_state.lat_hotel, st.session_state.lon_hotel)]
+                    puntos_miercoles = []
+                    for idx, v in enumerate(visitas_miercoles):
+                        l_s = float(df_pool[df_pool['id_sucursal']==v['ID Sucursal']]['latitud'].values[0])
+                        lo_s = float(df_pool[df_pool['id_sucursal']==v['ID Sucursal']]['longitud'].values[0])
+                        coords_miercoles.append((l_s, lo_s))
+                        puntos_miercoles.append({"lat": l_s, "lon": lo_s, "popup": f"Miércoles: {v['Nombre Sucursal']}", "color": "orange"})
+                    coords_miercoles.append((st.session_state.lat_hotel, st.session_state.lon_hotel))
+                    t_real_miercoles = obtener_ruta_vial_real(coords_miercoles)
+                    st.session_state.datos_por_dia["Día 3: Miércoles (Circuito Local)"] = {"trazado": t_real_miercoles, "puntos": puntos_miercoles, "line_color": "#4682B4", "tabla": visitas_miercoles, "coords_completas": coords_miercoles}
+                    
+                    ids_v = [v["ID Sucursal"] for v in visitas_miercoles]
+                    pool_pendiente = [s for s in pool_pendiente if s["id_sucursal"] not in ids_v]
             
-            st.write("---")
-            st.write("#### 🗺️ Cartografía Vial Regional e Itinerarios Híbridos Totales")
-            st_folium(mapa_regional, width=1300, height=500, returned_objects=[])
+            # --- DÍA 4: JUEVES (CASCADA ELÁSTICA REMANENTES) ---
+            if pool_pendiente:
+                visitas_jueves, km_jueves, hora_cierre_jueves = simular_ruta_del_dia(pool_pendiente, "08:30", len(pool_pendiente), True, hotel_nombre, (st.session_state.lat_hotel, st.session_state.lon_hotel))
+                if visitas_jueves:
+                    coords_jueves = [(st.session_state.lat_hotel, st.session_state.lon_hotel)]
+                    puntos_jueves = []
+                    for idx, v in enumerate(visitas_jueves):
+                        l_s = float(df_pool[df_pool['id_sucursal']==v['ID Sucursal']]['latitud'].values[0])
+                        lo_s = float(df_pool[df_pool['id_sucursal']==v['ID Sucursal']]['longitud'].values[0])
+                        coords_jueves.append((l_s, lo_s))
+                        puntos_jueves.append({"lat": l_s, "lon": lo_s, "popup": f"Jueves: {v['Nombre Sucursal']}", "color": "purple"})
+                    coords_jueves.append((st.session_state.lat_hotel, st.session_state.lon_hotel))
+                    t_real_jueves = obtener_ruta_vial_real(coords_jueves)
+                    st.session_state.datos_por_dia["Día 4: Jueves (Cierre Foráneo)"] = {"trazado": t_real_jueves, "puntos": puntos_jueves, "line_color": "#8B008B", "tabla": visitas_jueves, "coords_completas": coords_jueves}
+            
+            st.session_state.regional_simulado = True
+
+    if st.session_state.regional_simulado:
+        st.markdown("## 🗓️ Cronograma y Logística del Circuito Foráneo")
+        
+        for d_nombre, d_meta in st.session_state.datos_por_dia.items():
+            st.subheader(f"📅 {d_nombre}")
+            df_d_movil = []
+            for idx, v in enumerate(d_meta["tabla"]):
+                l_s = float(st.session_state.df_pool_guardado[st.session_state.df_pool_guardado['id_sucursal']==v['ID Sucursal']]['latitud'].values[0])
+                lo_s = float(st.session_state.df_pool_guardado[st.session_state.df_pool_guardado['id_sucursal']==v['ID Sucursal']]['longitud'].values[0])
+                u_gps = f"https://www.google.com/maps/search/?api=1&query={l_s},{lo_s}"
+                df_d_movil.append({
+                    "Sec": v["Secuencia"], "Sucursal": v["Nombre Sucursal"], "Dirección": v["Dirección"], "ETA": v["ETA Llegada"], "Salida": v["Hora Salida"],
+                    "Navegación": f'<a href="{u_gps}" target="_blank">🗺️ GPS</a>'
+                })
+            df_html_reg = pd.DataFrame(df_d_movil)
+            st.markdown(f'<div class="contenedor-tabla-scroll"><table class="dataframe-renderizada">{df_html_reg.to_html(escape=False, index=False, classes="dataframe-renderizada")}</table></div>', unsafe_allow_html=True)
+            
+            link_dia_completo_maps = generar_link_google_maps_completo(d_meta["coords_completas"])
+            st.markdown(f'<a href="{link_dia_completo_maps}" target="_blank" class="link-ruta-completa">🚀 Abrir Ruta Completa de este día en Google Maps</a>', unsafe_allow_html=True)
+            st.write("")
+
+        st.write("---")
+        st.subheader("🚗 Retorno Planificado a Casa Seguro")
+        st.success("🟢 ¡Felicidades! El 100% de las sucursales han sido cubiertas con éxito en el cronograma semanal.")
+        st.warning("⚠️ Regla de Seguridad Corporativa Ecolab: El viaje de regreso por carretera hacia la base en Atizapán queda programado para la mañana del día siguiente de forma segura, evitando conducción nocturna.")
+        
+        st.write("---")
+        st.subheader("🗺️ Cartografía Vial Regional Interactiva")
+        
+        opciones_mapa = ["MOSTRAR TODO EL CIRCUITO COMPLETO"] + list(st.session_state.datos_por_dia.keys())
+        capa_seleccionada = st.selectbox("Selecciona la capa de Ruta a visualizar en el mapa:", opciones_mapa, key="regional_map_select")
+        
+        mapa_regional = folium.Map(location=[st.session_state.lat_hotel, st.session_state.lon_hotel], zoom_start=8)
+        
+        folium.Marker([st.session_state.lat_casa, st.session_state.lon_casa], popup="📍 Base FSM (Atizapán)", icon=folium.Icon(color="red", icon="home")).add_to(mapa_regional)
+        folium.Marker([st.session_state.lat_hotel, st.session_state.lon_hotel], popup=f"🏁 Pernocta: {hotel_nombre}", icon=folium.Icon(color="green", icon="briefcase")).add_to(mapa_regional)
+        
+        if capa_seleccionada == "MOSTRAR TODO EL CIRCUITO COMPLETO":
+            for d_nombre, d_meta in st.session_state.datos_por_dia.items():
+                if d_meta["trazado"]:
+                    folium.PolyLine(d_meta["trazado"], color=d_meta["line_color"], weight=4.5, opacity=0.85).add_to(mapa_regional)
+                for pt in d_meta["puntos"]:
+                    folium.Marker([pt["lat"], pt["lon"]], popup=pt["popup"], icon=folium.Icon(color=pt["color"])).add_to(mapa_regional)
+        else:
+            d_meta = st.session_state.datos_por_dia[capa_seleccionada]
+            if d_meta["trazado"]:
+                folium.PolyLine(d_meta["trazado"], color=d_meta["line_color"], weight=5.5, opacity=0.9).add_to(mapa_regional)
+            for pt in d_meta["puntos"]:
+                folium.Marker([pt["lat"], pt["lon"]], popup=pt["popup"], icon=folium.Icon(color=pt["color"], icon="info-sign")).add_to(mapa_regional)
+        
+        st_folium(mapa_regional, width=1300, height=550, returned_objects=[])
